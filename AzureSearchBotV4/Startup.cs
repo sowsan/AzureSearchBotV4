@@ -3,6 +3,7 @@
 
 using System;
 using System.Linq;
+using AzureSearchBotV4.Dialogs.AzureSearchBotV4Bot;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Bot.Builder.Integration.AspNet.Core;
@@ -10,6 +11,11 @@ using Microsoft.Bot.Configuration;
 using Microsoft.Bot.Connector.Authentication;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+
+using Microsoft.Bot.Builder;
+using Microsoft.Bot.Builder.Dialogs;
+using AzureSearchBotV4.Dialogs.Main;
+using System.IO;
 
 namespace AzureSearchBotV4
 {
@@ -46,16 +52,27 @@ namespace AzureSearchBotV4
         /// <seealso cref="https://docs.microsoft.com/en-us/azure/bot-service/bot-service-manage-channels?view=azure-bot-service-4.0"/>
         public void ConfigureServices(IServiceCollection services)
         {
+
+            var secretKey = Configuration.GetSection("botFileSecret")?.Value;
+            var botFilePath = Configuration.GetSection("botFilePath")?.Value;
+            if (!File.Exists(botFilePath))
+            {
+                throw new FileNotFoundException($"The .bot configuration file was not found. botFilePath: {botFilePath}");
+            }
+
+            // Loads .bot configuration file and adds a singleton that your Bot can access through dependency injection.
+            var botConfig = BotConfiguration.Load(botFilePath ?? @".\qnamaker-activelearning.bot", secretKey);
+            services.AddSingleton(sp => botConfig ?? throw new InvalidOperationException($"The .bot configuration file could not be loaded. botFilePath: {botFilePath}"));
+
+            // Initialize Bot Connected Services clients.
+            var connectedServices = new BotServices(botConfig);
+            services.AddSingleton(sp => connectedServices);
+            services.AddSingleton(sp => botConfig);
+
             services.AddBot<AzureSearchBotV4Bot>(options =>
            {
-               var secretKey = Configuration.GetSection("botFileSecret")?.Value;
-
-                // Loads .bot configuration file and adds a singleton that your Bot can access through dependency injection.
-                var botConfig = BotConfiguration.Load(@".\AzureSearchBotV4.bot", secretKey);
-               services.AddSingleton(sp => botConfig);
-
-                // Retrieve current endpoint.
-                var service = botConfig.Services.Where(s => s.Type == "endpoint" && s.Name == "development").FirstOrDefault();
+               // Retrieve current endpoint.
+               var service = botConfig.Services.Where(s => s.Type == "endpoint" && s.Name == "development").FirstOrDefault();
                if (!(service is EndpointService endpointService))
                {
                    throw new InvalidOperationException($"The .bot file does not contain a development endpoint.");
@@ -69,6 +86,24 @@ namespace AzureSearchBotV4
                    await context.SendActivityAsync("Sorry, it looks like something went wrong.");
                };
            });
+
+            IStorage dataStore = new MemoryStorage();
+
+            var conversationState = new ConversationState(dataStore);
+
+            // Create and register state accessors.
+            // Accessors created here are passed into the IBot-derived class on every turn.
+            services.AddSingleton(sp =>
+            {
+                // Create the custom state accessor.
+                // State accessors enable other components to read and write individual properties of state.
+                var accessors = new BotAccessors(conversationState)
+                {
+                    ConversationDialogState = conversationState.CreateProperty<DialogState>("DialogState")
+                };
+
+                return accessors;
+            });
         }
 
         public void Configure(IApplicationBuilder app, IHostingEnvironment env)

@@ -16,6 +16,13 @@
       "appId": "<YOUR APP ID>",
       "appPassword": "<YOUR APP PASSWORD>",
       "id": "2"
+    },
+    {
+      "type": "generic",
+      "name": "azuresearch",
+      "SearchServiceName": "yoursearchservicename",
+      "SearchDialogsIndexName": "yoursearchindexname",
+      "SearchServiceQueryApiKey": "searchserviceadminkey"
     }
   ],
   "padlock": "",
